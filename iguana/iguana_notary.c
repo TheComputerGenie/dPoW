@@ -622,11 +622,8 @@ STRING_ARG(iguana,addnotary,ipaddr)
     return(clonestr("{\"result\":\"notary node added\"}"));
 }
 
-char NOTARY_CURRENCIES[][65] = {
-    "REVS", "SUPERNET", "DEX", "PANGEA", "JUMBLR", "BET", "CRYPTO", "HODL", "BOTS", "MGW", "MSHARK", "NINJA", "CCL", "PIRATE", "ILN", "RICK", "MORTY", "KOIN", "THC",  "GLEEC", "TOKEL", "CLC", "VOTE2023"
-};
-
-// "LTC", "USD", "EUR", "JPY", "GBP", "AUD", "CAD", "CHF", "NZD", "CNY", "RUB", "MXN", "BRL", "INR", "HKD", "TRY", "ZAR", "PLN", "NOK", "SEK", "DKK", "CZK", "HUF", "ILS", "KRW", "MYR", "PHP", "RON", "SGD", "THB", "BGN", "IDR", "HRK",
+// TODO: Confirm that this is the correct list of currencies. Is TOKEL supposed to be in here? It's the only 3rd party coin in the list.
+char NOTARY_CURRENCIES[][65] = { "SUPERNET", "NINJA", "CCL", "PIRATE", "ILN", "DOC", "MARTY", "KOIN", "THC", "GLEEC", "TOKEL", "CLC" };
 
 void _iguana_notarystats(char *fname,int32_t totals[64],int32_t dispflag)
 {
