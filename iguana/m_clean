@@ -1,2 +1,2 @@
 #!/bin/bash
-rm *.o ../agents/iguana
+cd ../ && find . -type f -name '*.o' -delete

@@ -23,6 +23,14 @@
 #define HAVE_STRUCT_TIMESPEC
 #include "../pnacl_main.h"
 #include "iguana777.h"
+#include <time.h>   // for nanosleep
+void sleep_ms(int milliseconds){
+    struct timespec ts;
+    ts.tv_sec = milliseconds / 1000;
+    ts.tv_nsec = (milliseconds % 1000) * 1000000;
+    nanosleep(&ts, NULL);
+}
+
 extern uint16_t Notaries_rpcport;
 
 struct iguana_jsonitem { struct queueitem DL; struct supernet_info *myinfo; uint32_t fallback,expired,allocsize; char *retjsonstr; char remoteaddr[64]; uint16_t port; char jsonstr[]; };
@@ -781,32 +789,13 @@ void jumblr_loop(void *ptr)
 void dpow_loop(void *arg)
 {
     RenameThread("dpow_loop");
-    struct supernet_info *myinfo = arg; double startmilli,endmilli; 
-    int32_t counter = 0;
+    struct supernet_info *myinfo = arg; double sleepmilli;
+    sleepmilli = 250;
     printf("start dpow loop\n");
     while ( 1 )
     {
-        counter++;
-        startmilli = OS_milliseconds();
-        endmilli = startmilli + 1000;
-        if ( myinfo->IAMNOTARY != 0 )
-        {
-            if ( myinfo->numdpows == 1 )
-            {
-                iguana_dPoWupdate(myinfo,myinfo->DPOWS[0]);
-                endmilli = startmilli + 100;
-            }
-            else if ( myinfo->numdpows > 1 )
-            {
-                iguana_dPoWupdate(myinfo,myinfo->DPOWS[counter % myinfo->numdpows]);
-                endmilli = startmilli + 20;
-                iguana_dPoWupdate(myinfo,myinfo->DPOWS[0]);
-            }
-        }
-        while ( OS_milliseconds() < endmilli )
-            usleep(1000);
-        if ( counter > myinfo->numdpows+1 )
-            counter = 0;
+        if ( myinfo->IAMNOTARY != 0 && myinfo->numdpows > 0 ) { dpow_nanomsg_update(myinfo); }
+        sleep_ms(sleepmilli);
     }
 }
 
