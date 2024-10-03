@@ -287,14 +287,13 @@ void dpow_statemachinestart(void *ptr)
     memcpy(&checkpoint,&ptrs[5],sizeof(checkpoint));
     src = iguana_coinfind(dp->symbol);
     dest = iguana_coinfind(dp->dest);
-    dpow_getchaintip(myinfo,&merkleroot,&srchash,&srctime,dp->desttx,&dp->numdesttx,dest);
-    dpow_getchaintip(myinfo,&merkleroot,&srchash,&srctime,dp->srctx,&dp->numsrctx,src);
     if ( src == 0 || dest == 0 )
     {
-        fprintf(stderr, "[---] null coin ptr? (%s %p or %s %p)\n",dp->symbol,src,dp->dest,dest);
-        free(ptr);
+        printf("null coin ptr? (%s %p or %s %p)\n",dp->symbol,src,dp->dest,dest);
         return;
     }
+    dpow_getchaintip(myinfo,&merkleroot,&srchash,&srctime,dp->desttx,&dp->numdesttx,dest);
+    dpow_getchaintip(myinfo,&merkleroot,&srchash,&srctime,dp->srctx,&dp->numsrctx,src);
     MoMdepth = 0;
     memset(&MoM,0,sizeof(MoM));
     if ( strcmp(src->symbol,"KMD") == 0 )
@@ -305,43 +304,10 @@ void dpow_statemachinestart(void *ptr)
         kmdheight = dest->longestchain;
     }
 
-    bp = 0; blockindex = -1;
-
-    if (dp)
+    if ( (bp= dpow_heightfind(myinfo,dp, checkpoint.blockhash.height)) == 0 )
     {
-        int32_t busy_blocks = 0;
-
-        // below is replacement for dpow_heightfind and dpow_blockfind calls, bcz having one loop over dp->maxblocks
-        // is better than iterating twice, also we probably need to protect bp search by mutex, to avoid possible
-        // rewrite of dp->blocks[i] in other threads at the moment of search
-
-        portable_mutex_lock(&dpowT_mutex);
-        for (int32_t i = 0; i < dp->maxblocks; i++)
+        if ( (blockindex= dpow_blockfind(myinfo,dp)) < 0 )
         {
-            if ( dp->blocks[i] != 0 ) {
-                busy_blocks++;
-                if (checkpoint.blockhash.height == dp->blocks[i]->height) {
-                    bp = dp->blocks[i]; // dpow_heightfind
-                }
-            } else {
-                if (blockindex < 0) {
-                        blockindex = i; // dpow_blockfind
-                    }
-            }
-        }
-        portable_mutex_unlock(&dpowT_mutex);
-
-        fprintf(stderr, "[---] State: sym.%s, dest.%s, blocks.%d/%d (size.%zu)\n", dp->symbol, dp->dest, busy_blocks, dp->maxblocks, sizeof(*bp));
-    }
-
-    //if ( (bp= dpow_heightfind(myinfo,dp, checkpoint.blockhash.height)) == 0 )
-    if ( bp == 0 )
-    {
-        //if ( (blockindex= dpow_blockfind(myinfo,dp)) < 0 )
-        if ( blockindex < 0 )
-        {
-            fprintf(stderr, "[---] blockindex == -1\n");
-            free(ptr);
             return;
         }
 
@@ -349,7 +315,11 @@ void dpow_statemachinestart(void *ptr)
         bp = calloc(1,sizeof(*bp));
         dp->blocks[blockindex] = bp;
         portable_mutex_unlock(&dpowT_mutex);
-        printf("blockindex.%i allocate bp for %s ht.%d -> %s\n",blockindex,src->symbol,checkpoint.blockhash.height,dest->symbol);
+        snprintf(colour, sizeof(colour), strcmp(src->symbol, "KMD") == 0 ? GREEN : YELLOW);
+        snprintf(colour2, sizeof(colour2), strcmp(dest->symbol, "KMD") == 0 ? GREEN : YELLOW);
+        printf("%s[%s] "RESET,colour,src->symbol);
+        printf("State: allocate bp: blockindex.%i ht.%d ->"RESET,blockindex,checkpoint.blockhash.height);
+        printf("%s%s\n"RESET,colour2,dest->symbol);
         bp->MoM = MoM;
         bp->MoMdepth = MoMdepth;
         bp->CCid = dp->fullCCid & 0xffff;
@@ -512,7 +482,11 @@ void dpow_statemachinestart(void *ptr)
         return;
     }
     bp->myind = myind;
-    printf("[%d] notarize %s->%s %s ht.%d minsigs.%d duration.%d start.%u MoM[%d] %s CCid.%u\n",bp->myind,dp->symbol,dp->dest,bits256_str(str,checkpoint.blockhash.hash),checkpoint.blockhash.height,minsigs,duration,checkpoint.timestamp,bp->MoMdepth,bits256_str(str2,bp->MoM),bp->CCid);
+    snprintf(colour, sizeof(colour), strcmp(dp->symbol, "KMD") == 0 ? GREEN : YELLOW);
+    snprintf(colour2, sizeof(colour2), strcmp(dp->dest, "KMD") == 0 ? GREEN : YELLOW);
+    printf("%s[%s] "RESET,colour,dp->symbol);
+    printf("Notarize: destination.%s%s "RESET,colour2,dp->dest);
+    printf("bhash.%s ht.%d minsigs.%d duration.%d start.%u MoM[%d] %s CCid.%u myid.%d\n"RESET,bits256_str(str,checkpoint.blockhash.hash),checkpoint.blockhash.height,minsigs,duration,checkpoint.timestamp,bp->MoMdepth,bits256_str(str2,bp->MoM),bp->CCid,bp->myind);
     if ( bp->isratify != 0 && memcmp(bp->notaries[0].pubkey,bp->ratified_pubkeys[0],33) != 0 )
     {
         for (i=0; i<33; i++)
@@ -551,7 +525,7 @@ void dpow_statemachinestart(void *ptr)
             {
                 // lock the dest utxo if destination coin is KMD.
                 if (dpow_lockunspent(myinfo,bp->destcoin,destaddr,bits256_str(str2,ep->dest.prev_hash),ep->dest.prev_vout) != 0)
-                    printf(">>>> LOCKED %s UTXO.(%s) vout.(%d)\n",dest->symbol,bits256_str(str2,ep->dest.prev_hash),ep->dest.prev_vout);
+                    printf(">>>> LOCKED ->%s UTXO.(%s) vout.(%d)\n",dest->symbol,bits256_str(str2,ep->dest.prev_hash),ep->dest.prev_vout);
                 else
                     printf("<<<< FAILED TO LOCK %s UTXO.(%s) vout.(%d)\n",dest->symbol,bits256_str(str2,ep->dest.prev_hash),ep->dest.prev_vout);
              }
@@ -562,7 +536,7 @@ void dpow_statemachinestart(void *ptr)
             {
                 // lock the src coin selected utxo if the source coin is KMD.
                 if (dpow_lockunspent(myinfo,bp->srccoin,srcaddr,bits256_str(str2,ep->src.prev_hash),ep->src.prev_vout) != 0)
-                    printf(">>>> LOCKED %s UTXO.(%s) vout.(%d)\n",src->symbol,bits256_str(str2,ep->src.prev_hash),ep->src.prev_vout);
+                    printf(">>>> LOCKED %s-> UTXO.(%s) vout.(%d)\n",src->symbol,bits256_str(str2,ep->src.prev_hash),ep->src.prev_vout);
                 else
                     printf("<<<< FAILED TO LOCK %s UTXO.(%s) vout.(%d)\n",src->symbol,bits256_str(str2,ep->src.prev_hash),ep->src.prev_vout);
             }
@@ -580,14 +554,6 @@ void dpow_statemachinestart(void *ptr)
             bp->mydestutxo = ep->dest.prev_hash;
         }
     }
-    /*if ( strcmp(dp->symbol,"CHIPS") == 0 && myind == 0 )
-    {
-        char str[65];
-        printf(">>>>>>> CHIPS myind.%d %s/v%d\n",myind,bits256_str(str,bp->notaries[myind].src.prev_hash),bp->notaries[myind].src.prev_vout);
-        bp->desttxid = bp->notaries[myind].src.prev_hash;
-        dpow_signedtxgen(myinfo,dp,src,bp,bp->myind,1LL<<bp->myind,bp->myind,DPOW_SIGCHANNEL,0,0);
-    }*/
-
     bp->recvmask |= (1LL << myind);
     bp->notaries[myind].othermask |= (1LL << myind);
     dp->checkpoint = checkpoint;
@@ -599,7 +565,7 @@ void dpow_statemachinestart(void *ptr)
     {
         if ( dp->checkpoint.blockhash.height > checkpoint.blockhash.height ) //(checkpoint.blockhash.height % 100) != 0 &&
         {
-            //printf("abort %s ht.%d due to new checkpoint.%d\n",dp->symbol,checkpoint.blockhash.height,dp->checkpoint.blockhash.height);
+            printf("abort %s ht.%d due to new checkpoint.%d\n",dp->symbol,checkpoint.blockhash.height,dp->checkpoint.blockhash.height);
             dp->ratifying -= bp->isratify;
             goto end;
         }
@@ -615,12 +581,11 @@ void dpow_statemachinestart(void *ptr)
         extralen = dpow_paxpending(myinfo,extras,sizeof(extras),&bp->paxwdcrc,bp->MoM,bp->MoMdepth,bp->CCid,src_or_dest,bp);
         bp->notaries[bp->myind].paxwdcrc = bp->paxwdcrc;
     }
-    printf("PAXWDCRC.%x myind.%d isratify.%d DPOW.%s statemachine checkpoint.%d %s start.%u+dur.%d vs %ld MoM[%d] %s\n",bp->paxwdcrc,bp->myind,bp->isratify,src->symbol,checkpoint.blockhash.height,bits256_str(str,checkpoint.blockhash.hash),starttime,bp->duration,time(NULL),bp->MoMdepth,bits256_str(str2,bp->MoM));
+    snprintf(colour, sizeof(colour), strcmp(src->symbol, "KMD") == 0 ? GREEN : YELLOW);
+	printf("%s[%s] "RESET,colour,src->symbol);
+    printf(" State: checkpoint.%d paxwdcrc.%x isratify.%d %s start.%u+dur.%d vs %ld MoM[%d] %s myid.%d\n"RESET,checkpoint.blockhash.height,bp->paxwdcrc,bp->isratify,bits256_str(str,checkpoint.blockhash.hash),starttime,bp->duration,time(NULL),bp->MoMdepth,bits256_str(str2,bp->MoM),bp->myind);
     for (i=0; i<sizeof(srchash); i++)
         srchash.bytes[i] = dp->minerkey33[i+1];
-    //printf("start utxosync start.%u %u\n",starttime,(uint32_t)time(NULL));
-    //dpow_utxosync(myinfo,dp,bp,0,myind,srchash);
-    //printf("done utxosync start.%u %u\n",starttime,(uint32_t)time(NULL));
     while ( time(NULL) < starttime+bp->duration && src != 0 && dest != 0 && bp->state != 0xffffffff )
     {
         if ( bp->isratify == 0 )
@@ -634,22 +599,14 @@ void dpow_statemachinestart(void *ptr)
                 src_or_dest = 0;
             else src_or_dest = 1;
             extralen = dpow_paxpending(myinfo,extras,sizeof(extras),&bp->paxwdcrc,bp->MoM,bp->MoMdepth,bp->CCid,src_or_dest,bp);
-            // This is no longer be needed... It can stop notarizations dead if they have not happened for 1440 blocks. 
-            //if ( extralen == -1 )
-            //    break;
             bp->notaries[bp->myind].paxwdcrc = bp->paxwdcrc;
         }
-        if ( dp->checkpoint.blockhash.height > checkpoint.blockhash.height ) //(checkpoint.blockhash.height % 100) != 0 &&
-        {
-            if ( bp->isratify == 0 )
-            {
-                //printf("abort %s ht.%d due to new checkpoint.%d\n",dp->symbol,checkpoint.blockhash.height,dp->checkpoint.blockhash.height);
-                break;
-            }
-        }
+        if ( dp->checkpoint.blockhash.height > checkpoint.blockhash.height && bp->isratify == 0 ) { break; }
         if ( dp->ratifying > 1 )
         {
-            printf("new ratification started. abort ht.%d\n",bp->height);
+            snprintf(colour, sizeof(colour), strcmp(src->symbol, "KMD") == 0 ? GREEN : YELLOW);
+            printf("%s[%s] "RESET,colour,src->symbol);
+            printf("NEW ratification started. ABORT ht.%d\n",bp->height);
             break;
         }
         if ( bp->isratify == 0 )
@@ -658,134 +615,36 @@ void dpow_statemachinestart(void *ptr)
             checkhash = dpow_getblockhash(myinfo,bp->srccoin,bp->height);
             if ( bits256_cmp(checkhash,bp->hashmsg) != 0 )
             {
-                printf("%s ht.%d %s got reorged to %s, abort notarization\n",bp->srccoin->symbol,bp->height,bits256_str(str,bp->hashmsg),bits256_str(str2,checkhash));
+                snprintf(colour, sizeof(colour), RED);
+                printf("%s[%s] "RESET,colour,dp->symbol);
+                printf("REORG ht.%d was.%s now.%s, abort notarization\n"RESET,bp->height,bits256_str(str,bp->hashmsg),bits256_str(str2,checkhash));
                 break;
             }
         }
-        if ( bp->state != 0xffffffff )
-        {
-            dpow_send(myinfo,dp,bp,srchash,bp->hashmsg,0,bp->height,(void *)"ping",0);
-            dpow_nanomsg_update(myinfo);
-        }
-        else
-        {
-            dp->lastnotarized = checkpoint.blockhash.hash;
-            printf("notarized %s %s\n",dp->symbol,bits256_str(str,checkpoint.blockhash.hash));
-        }
-        if ( 0 && dp->cancelratify != 0 && bp->isratify != 0 )
-        {
-            printf("abort pending ratify\n");
-            break;
-        }
-        sleep(30);
+        dpow_send(myinfo,dp,bp,srchash,bp->hashmsg,0,bp->height,(void *)"ping",0);
+        dpow_nanomsg_update(myinfo);
+        sleep_ms(250);
     }
-    printf("END isratify.%d:%d bestk.%d %llx sigs.%llx state.%x machine ht.%d completed state.%x %s.%s %s.%s recvmask.%llx paxwdcrc.%x %p %p\n",bp->isratify,dp->ratifying,bp->bestk,(long long)bp->bestmask,(long long)(bp->bestk>=0?bp->destsigsmasks[bp->bestk]:0),bp->state,bp->height,bp->state,dp->dest,bits256_str(str,bp->desttxid),dp->symbol,bits256_str(str2,bp->srctxid),(long long)bp->recvmask,bp->paxwdcrc,src,dest);
-    dp->lastrecvmask = bp->recvmask;
+    //dp->lastrecvmask = bp->recvmask;
     dp->ratifying -= bp->isratify;
-#if STAKEDTEST
-    // We need to wait for notarized confirm here. If the notarization is reorged for any reason we need to rebroadcast it,
-    // because the mempool is stupid after the sapling update, or Alright might be playing silly games.
-    int8_t dest_confs = 0, src_confs = 0, destnotarized = 0, srcnotarized = 0, firstloop = 0;
-    char desttx[32768] = {0}, srctx[32768] = {0};
-    while ( destnotarized == 0 || srcnotarized == 0 )
-    {
-        // If the round was sucessful and both notarization transactions were created successfully we will make sure they are in the chain.
-        if ( bits256_cmp(bp->desttxid,zero) == 0 )
-            break;
-        if ( bits256_cmp(bp->srctxid,zero) == 0 )
-            break;
-        int8_t send_dest = 0, send_src = 0; char rettx[32768] = {0};
-        if ( firstloop == 0 )
-        {
-            sleep((rand() % (120 - 60)) + 60); 
-            firstloop = 1;
-        }
-        // random sleep here so all nodes are checking/rebroadcasting at diffrent times. 
-        sleep((rand() % (77 - 33)) + 33);
-        
-        // get the confirms for desttxid 
-        if ( destnotarized == 0 )
-        {
-            if ( (dest_confs= dpow_txconfirms(myinfo, bp->destcoin, bp->desttxid, rettx)) != -1 )
-            {
-                if ( desttx[0] == 0 && rettx[0] != 0 )
-                {
-                    // save the transaction once we fetch it once, as its possible we wil not be able to always see it.
-                    memcpy(desttx, rettx, strlen(rettx)+1);
-                }
-                if ( dest_confs > 2 )
-                {
-                    // tx is notarized. or it has 100+ raw confirms. Its now final and cannot be lost, no longer need to check.
-                    fprintf(stderr, "[dest.%s] txid.%s is notarized. confirms.%d srcnotarized.%i\n",dp->dest, bits256_str(str,bp->desttxid), dest_confs, srcnotarized);
-                    destnotarized = 1;
-                }
-                else if ( dest_confs == 0 )
-                {
-                    // not confirmed, rebroadcast it.
-                    fprintf(stderr, "[%s] txid.%s is not confirmed rebroadcasting....\n",dp->dest, bits256_str(str,bp->desttxid));
-                    if ( desttx[0] != 0 )
-                        send_dest = 1;
-                }
-            } 
-            else if ( desttx[0] != 0 ) // we have the tranxation hex saved, and the tx is not in the local mempool or a block, so resend it.
-            {
-                fprintf(stderr, "[%s] Cant find tx.%s rebroadcasting...\n", dp->dest, bits256_str(str,bp->desttxid));
-                send_dest = 1;
-            } else fprintf(stderr, "[%s] get raw transaction error\n", dp->dest);
-            if ( send_src == 1 )
-            {
-                char *tmpstr = dpow_sendrawtransaction(myinfo, bp->destcoin, desttx);
-                free(tmpstr);
-            }    
-        }
-        
-        // get the confirms for srctxid
-        memset(rettx,0,sizeof(rettx)); // zero out rettx!
-        if ( srcnotarized == 0 )
-        {
-            if ( (src_confs= dpow_txconfirms(myinfo, bp->srccoin, bp->srctxid, rettx)) != -1 )
-            {
-                if ( srctx[0] == 0 && rettx[0] != 0 )
-                {
-                    memcpy(srctx, rettx, strlen(rettx)+1);
-                }
-                if ( src_confs > 2 )
-                {
-                    fprintf(stderr, "[src.%s] txid.%s is notarized. confirms.%i destnotarized.%i\n", dp->symbol, bits256_str(str,bp->srctxid), src_confs, destnotarized);
-                    srcnotarized = 1;
-                }
-                else if ( src_confs == 0 )
-                {
-                    fprintf(stderr, "[%s] txid.%s is not confirmed rebroadcasting....\n", dp->symbol, bits256_str(str,bp->srctxid));
-                    if ( srctx[0] != 0 )
-                        send_src = 1;
-                }
-            }
-            else if ( srctx[0] != 0 )
-            {
-                fprintf(stderr, "[%s] Cant find tx.%s rebroadcasting...\n", dp->symbol, bits256_str(str,bp->srctxid));
-                send_src = 1;
-            } else fprintf(stderr, "[%s] get raw transaction error\n", dp->symbol);
-            if ( send_src == 1 )
-            {
-                char *tmpstr = dpow_sendrawtransaction(myinfo, bp->srccoin, srctx);
-                free(tmpstr);
-            }
-        }
-    }
-#endif
+    snprintf(colour, sizeof(colour), strcmp(dp->symbol, "KMD") == 0 ? GREEN : YELLOW);
+    printf("%s[%s] "RESET,colour,dp->symbol);
+    if ( bp->state == 0xffffffff )
+     {
+		printf("State: completed %x paxwdcrc.%x isratify.%d:%d bestk.%d %llx sig.%llx ht.%d recmask.%llx %p %p txhashes: %s.%s %s.%s\n"RESET,bp->state,bp->paxwdcrc,bp->isratify,dp->ratifying,bp->bestk,(long long)bp->bestmask,(long long)(bp->bestk>=0?bp->destsigsmasks[bp->bestk]:0),bp->height,(long long)bp->recvmask,src,dest,dp->symbol,bits256_str(str2,bp->srctxid),dp->dest,bits256_str(str,bp->desttxid));
+	} else {
+		printf("State: INCOMPLETE %x paxwdcrc.%x isratify.%d:%d bestk.%d %llx sig.%llx ht.%d recmask.%llx %p %p\n"RESET,bp->state,bp->paxwdcrc,bp->isratify,dp->ratifying,bp->bestk,(long long)bp->bestmask,(long long)(bp->bestk>=0?bp->destsigsmasks[bp->bestk]:0),bp->height,(long long)bp->recvmask,src,dest);
+	}
 end:
     // unlock the dest utxo on KMD.
-    if ( ep != 0 && strcmp("KMD",dest->symbol) == 0  && ep->dest.prev_vout != -1 )
+    if ( ep != 0 && strcmp("KMD",dest->symbol) == 0  && ep->dest.prev_vout != -1 && dpow_unlockunspent(myinfo,bp->destcoin,destaddr,bits256_str(str2,ep->dest.prev_hash),ep->dest.prev_vout) != 0 )
     {
-      if ( dpow_unlockunspent(myinfo,bp->destcoin,destaddr,bits256_str(str2,ep->dest.prev_hash),ep->dest.prev_vout) != 0 )
-        printf(">>>> UNLOCKED %s UTXO.(%s) vout.(%d)\n",dest->symbol,bits256_str(str2,ep->dest.prev_hash),ep->dest.prev_vout);
+      printf(">>>> UNLOCKED ->%s UTXO.(%s) vout.(%d)\n",dest->symbol,bits256_str(str2,ep->dest.prev_hash),ep->dest.prev_vout);
     }
     // unlock the src selected utxo on KMD.
-    if ( ep != 0 && strcmp("KMD",src->symbol) == 0  && ep->src.prev_vout != -1 )
+    if ( ep != 0 && strcmp("KMD",src->symbol) == 0  && ep->src.prev_vout != -1 && dpow_unlockunspent(myinfo,bp->srccoin,srcaddr,bits256_str(str2,ep->src.prev_hash),ep->src.prev_vout) != 0)
     {
-      if ( dpow_unlockunspent(myinfo,bp->srccoin,srcaddr,bits256_str(str2,ep->src.prev_hash),ep->src.prev_vout) != 0)
-        printf(">>>> UNLOCKED %s UTXO.(%s) vout.(%d)\n",src->symbol,bits256_str(str2,ep->src.prev_hash),ep->src.prev_vout);
+      printf(">>>> UNLOCKED %s-> UTXO.(%s) vout.(%d)\n",src->symbol,bits256_str(str2,ep->src.prev_hash),ep->src.prev_vout);
     }
     portable_mutex_lock(&dpowT_mutex);
     dp->blocks[blockindex] = 0;
