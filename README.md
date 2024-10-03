@@ -33,8 +33,6 @@ General [Setup instructions](https://github.com/KomodoPlatform/Documentation/blo
 
 #### Start 3rd party notarizations (in Docker):
 
-`./m_notary_3rdparty_docker`
-
 **Please note: Automatic UTXO split is deactivated by default.**
 
 ## dPoW asset status
@@ -43,7 +41,7 @@ General [Setup instructions](https://github.com/KomodoPlatform/Documentation/blo
 
 **Please note:** All dPoW protected blockchain projects are required to open an issue ticket with upgrade details in this repository and at least 4 weeks prior to a mandatory update - in case of significant code changes (>2000 lines of code altered/added) open the issue ticket at least 8 weeks prior to the mandatory update. Send the official update announcement ref to `partners@komodoplatform.com`.
 
-#### [Notary Node metrics](http://stats.kmd.io/) - http://stats.kmd.io/
+#### [Notary Addresses](https://deckersu.github.io/notaries_addresses.html)
 
 #### [Notary Addresses](https://deckersu.github.io/notaries_addresses.html)
 
